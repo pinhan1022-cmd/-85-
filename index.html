@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>KIHA85 駕駛模擬器 - 飛驒之秋</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+            touch-action: none; /* 防止手機滑動縮放 */
+        }
+        
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #view-container {
+            flex-grow: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 模擬 KIHA85 的寬景窗戶 (Wide View) */
+        #cab-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            box-shadow: inset 0 0 80px rgba(0,0,0,1);
+            border: 30px solid #1a1a1a;
+            border-bottom: 5px solid #111;
+            border-radius: 30px 30px 0 0;
+            z-index: 10;
+        }
+        
+        /* 窗框邊角與雨刷 */
+        .cab-detail {
+            position: absolute;
+            background: #111;
+            z-index: 11;
+        }
+        #cab-pillar {
+            top: 0; bottom: 0; right: 28%; width: 25px;
+            background: linear-gradient(to right, #111, #333, #111);
+        }
+        #wiper-left, #wiper-right {
+            bottom: 0; width: 8px; height: 150px;
+            background: #0a0a0a;
+            transform-origin: bottom center;
+            transform: rotate(-15deg);
+        }
+        #wiper-left { left: 35%; }
+        #wiper-right { right: 12%; }
+
+        /* 擬真儀表板區域 */
+        #dashboard {
+            height: 280px;
+            background: 
+                linear-gradient(to bottom, #2b3a32, #18221d), /* 深綠色金屬感 (國鐵風格) */
+                url('data:image/svg+xml;utf8,<svg width="4" height="4" xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4" fill="none"/><circle cx="2" cy="2" r="0.5" fill="rgba(0,0,0,0.1)"/></svg>');
+            border-top: 6px solid #111;
+            box-shadow: inset 0 15px 15px -15px rgba(255,255,255,0.2), 0 -10px 20px rgba(0,0,0,0.8);
+            display: flex;
+            padding: 10px;
+            z-index: 20;
+            position: relative;
+            color: #ccc;
+        }
+
+        /* 螺絲釘裝飾 */
+        .screw {
+            position: absolute;
+            width: 8px; height: 8px;
+            background: radial-gradient(circle, #888, #333);
+            border-radius: 50%;
+            box-shadow: inset 1px 1px 2px rgba(255,255,255,0.5), 1px 1px 2px rgba(0,0,0,0.8);
+        }
+        .screw::after {
+            content: ''; position: absolute;
+            top: 3px; left: 1px; width: 6px; height: 1.5px;
+            background: rgba(0,0,0,0.7);
+            transform: rotate(45deg);
+        }
+
+        .panel-section {
+            background: linear-gradient(135deg, #1c2621, #243029);
+            border: 2px solid #0f1411;
+            border-radius: 8px;
+            padding: 10px;
+            margin: 5px;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.8), 2px 2px 5px rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            position: relative;
+        }
+
+        /* 儀表 */
+        .gauge-container {
+            position: relative;
+            width: 140px; height: 140px;
+            background: radial-gradient(circle, #fff, #ddd);
+            border-radius: 50%;
+            border: 8px solid #222;
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.5), 0 5px 10px rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .gauge-glass {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            border-radius: 50%;
+            background: linear-gradient(135deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0) 50%, rgba(0,0,0,0.1) 100%);
+            z-index: 10;
+            pointer-events: none;
+        }
+        .gauge-ticks {
+            position: absolute; width: 100%; height: 100%;
+            background: conic-gradient(from -135deg at 50% 50%, transparent 0deg, transparent 270deg, #fff 270deg);
+        }
+        .needle {
+            position: absolute;
+            bottom: 50%; left: 50%;
+            transform-origin: bottom center;
+            transition: transform 0.1s ease-out;
+            z-index: 5;
+        }
+        .needle-speed { width: 4px; height: 55px; background: #e74c3c; margin-left: -2px; border-radius: 2px 2px 0 0; }
+        .needle-bc { width: 3px; height: 50px; background: #e74c3c; margin-left: -1.5px; } /* 紅針 BC */
+        .needle-mr { width: 3px; height: 50px; background: #222; margin-left: -1.5px; } /* 黑針 MR */
+        
+        .gauge-center {
+            position: absolute; width: 16px; height: 16px;
+            background: #111; border-radius: 50%; z-index: 6;
+            box-shadow: inset 2px 2px 2px rgba(255,255,255,0.3);
+        }
+        .gauge-label {
+            position: absolute; bottom: 20px; font-weight: bold; color: #333; font-size: 12px;
+        }
+
+        /* 擬真操控把手 */
+        .lever-track {
+            position: relative;
+            width: 60px;
+            height: 180px;
+            background: #111;
+            border-radius: 30px;
+            border: 3px solid #444;
+            box-shadow: inset 0 0 15px #000;
+            display: flex;
+            justify-content: center;
+        }
+        .lever-handle {
+            position: absolute;
+            width: 40px;
+            height: 60px;
+            background: linear-gradient(to right, #666, #aaa, #666);
+            border-radius: 10px;
+            cursor: pointer;
+            box-shadow: 0 10px 10px rgba(0,0,0,0.8), inset 0 2px 5px rgba(255,255,255,0.8);
+            transition: bottom 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            color: #000;
+            user-select: none;
+        }
+        /* 左側油門把手 (綠色系裝飾) */
+        #lever-power { bottom: 0%; border-top: 4px solid #2ecc71; }
+        /* 右側煞車把手 (紅色系裝飾) */
+        #lever-brake { bottom: 100%; border-top: 4px solid #e74c3c; }
+
+        .notch-markers {
+            position: absolute; right: -25px; top: 0; bottom: 0;
+            display: flex; flex-direction: column; justify-content: space-between;
+            padding: 25px 0; font-size: 10px; font-weight: bold; color: #999;
+        }
+
+        /* 指示燈 */
+        .indicator-group { display: flex; gap: 5px; margin-bottom: 10px; }
+        .indicator {
+            width: 25px; height: 15px; border-radius: 3px;
+            background: #222; border: 1px solid #111;
+            box-shadow: inset 0 0 5px #000;
+        }
+        .indicator.on-green { background: #2ecc71; box-shadow: 0 0 10px #2ecc71, inset 0 0 5px #fff; }
+        .indicator.on-red { background: #e74c3c; box-shadow: 0 0 10px #e74c3c, inset 0 0 5px #fff; }
+
+        /* 電子顯示器 */
+        .digital-display {
+            font-family: 'Share Tech Mono', monospace;
+            background: #0a110a; color: #2ecc71;
+            border: 2px solid #333; border-radius: 4px;
+            padding: 5px 10px; font-size: 18px; text-align: right;
+            box-shadow: inset 0 0 10px rgba(0,0,0,1);
+            text-shadow: 0 0 5px #2ecc71;
+        }
+
+        /* 開始/結束畫面 */
+        #overlay-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 15, 10, 0.92);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 50; color: white;
+            backdrop-filter: blur(5px);
+            overflow-y: auto;
+            padding: 1.5rem 1rem;
+        }
+
+        /* 隱藏捲軸 */
+        ::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    
+    <div id="overlay-screen">
+        <h1 class="text-4xl md:text-6xl font-black mb-2 tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-yellow-300 drop-shadow-[0_0_10px_rgba(255,165,0,0.8)]">
+            KIHA85 飛驒之秋
+        </h1>
+        <h2 class="text-xl md:text-2xl mb-4 font-bold text-gray-300">特急 Hida (高山本線: 富山 ➔ 高山)</h2>
+        
+        <!-- KIHA85 車輛相片區塊 -->
+        <div class="relative mb-6 max-w-2xl w-full rounded-xl overflow-hidden border-2 border-amber-500/50 shadow-[0_0_20px_rgba(245,158,11,0.3)] group">
+            <img 
+                src="https://commons.wikimedia.org/wiki/Special:FilePath/Kiha85-1119_Hida.jpg?width=800" 
+                alt="JR東海 KIHA85系 特急飛驒號" 
+                class="w-full h-48 md:h-64 object-cover transform hover:scale-105 transition duration-500"
+                onerror="this.onerror=null; this.src='https://placehold.co/800x400/1e293b/f59e0b?text=KIHA85+Wide+View+Hida';"
+            >
+            <div class="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-3 flex justify-between items-end">
+                <span class="text-xs md:text-sm font-semibold text-amber-300 bg-amber-950/80 px-2.5 py-1 rounded border border-amber-500/40">JR東海 KIHA85系 柴聯車</span>
+                <span class="text-xs text-gray-300 hidden sm:inline">Wide View 特急飛驒 (ひだ)</span>
+            </div>
+        </div>
+
+        <div class="bg-gray-800/80 p-6 rounded-xl text-lg mb-8 max-w-2xl border border-gray-600 shadow-2xl backdrop-blur-sm">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <h3 class="font-bold text-yellow-400 mb-2 border-b border-gray-600 pb-1">操作說明 (PC/觸控)</h3>
+                    <ul class="space-y-2 text-gray-200 text-sm">
+                        <li><span class="font-bold text-green-400">加速 (Power):</span> 鍵盤 <kbd class="bg-gray-700 px-2 rounded">W</kbd> / <kbd class="bg-gray-700 px-2 rounded">↑</kbd> 或點擊左把手</li>
+                        <li><span class="font-bold text-red-400">煞車 (Brake):</span> 鍵盤 <kbd class="bg-gray-700 px-2 rounded">S</kbd> / <kbd class="bg-gray-700 px-2 rounded">↓</kbd> 或點擊右把手</li>
+                        <li><span class="font-bold text-red-500">緊急煞車 (EB):</span> 鍵盤 <kbd class="bg-gray-700 px-2 rounded">空白鍵</kbd></li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="font-bold text-yellow-400 mb-2 border-b border-gray-600 pb-1">駕駛指示</h3>
+                    <ul class="space-y-2 text-gray-200 text-sm">
+                        <li>本車為<span class="text-orange-300">柴油客車</span>，加速需等待轉速提升。</li>
+                        <li>請注意沿線風景，包含隧道與橋樑。</li>
+                        <li>請在距離下一站 <span class="text-green-400 font-bold">0m</span> 處停車。</li>
+                        <li>容許停車誤差範圍：<span class="text-green-400 font-bold">±10m</span>。</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <button id="start-btn" class="px-10 py-4 bg-gradient-to-b from-green-500 to-green-700 hover:from-green-400 hover:to-green-600 text-white font-black rounded-lg text-2xl transition transform hover:scale-105 shadow-[0_0_20px_rgba(34,197,94,0.5)] border-2 border-green-300">
+            解鎖軔機並發車 (Start)
+        </button>
+    </div>
+
+    <div id="view-container">
+        <!-- Three.js Canvas -->
+        <div id="cab-overlay"></div>
+        <div class="cab-detail" id="cab-pillar"></div>
+        <div class="cab-detail" id="wiper-left"></div>
+        <div class="cab-detail" id="wiper-right"></div>
+        
+        <!-- HUD 資訊 (投射在玻璃上) -->
+        <div class="absolute top-6 left-8 z-20 text-white" style="text-shadow: 2px 2px 4px #000, -1px -1px 2px #000;">
+            <div class="text-4xl font-black mb-1 text-green-400" id="hud-next-station">下一站: 越中八尾</div>
+            <div class="text-6xl font-black text-yellow-400 font-mono tracking-tighter" id="hud-distance">0m</div>
+            <div class="mt-4 text-xl font-bold text-white bg-black/60 px-4 py-2 rounded-lg border border-gray-500 inline-block" id="hud-message">系統就緒。</div>
+        </div>
+        <div class="absolute top-6 right-8 z-20 text-white text-right" style="text-shadow: 2px 2px 4px #000;">
+            <div class="text-2xl font-bold bg-black/60 px-3 py-1 rounded-lg border border-gray-500">KIHA85系 (特急 Hida)</div>
+            <div class="text-xl mt-2 font-mono text-gray-200" id="hud-time">10:05:00</div>
+        </div>
+    </div>
+
+    <!-- 擬真駕駛台 -->
+    <div id="dashboard">
+        <div class="screw" style="top: 10px; left: 10px;"></div>
+        <div class="screw" style="top: 10px; right: 10px;"></div>
+        <div class="screw" style="bottom: 10px; left: 10px;"></div>
+        <div class="screw" style="bottom: 10px; right: 10px;"></div>
+
+        <!-- 左側：主控手柄 (Power) -->
+        <div class="panel-section w-1/5">
+            <div class="text-gray-400 text-xs font-bold mb-2 tracking-widest">主控手柄 POWER</div>
+            <div class="lever-track" id="track-power" onclick="handleTrackClick(event, 'power')">
+                <div class="lever-handle" id="lever-power">N</div>
+                <div class="notch-markers text-left" style="right: auto; left: -25px;">
+                    <span>P5</span><span>P4</span><span>P3</span><span>P2</span><span>P1</span><span>N</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 中間左：數位資訊與狀態 -->
+        <div class="panel-section w-1/4 justify-start">
+            <div class="w-full flex justify-between mb-4 border-b border-gray-700 pb-2">
+                <div class="indicator-group flex-col items-center">
+                    <div class="text-[10px] text-gray-400 mb-1">車門</div>
+                    <div class="indicator on-red" id="ind-door"></div>
+                </div>
+                <div class="indicator-group flex-col items-center">
+                    <div class="text-[10px] text-gray-400 mb-1">ATS</div>
+                    <div class="indicator on-green" id="ind-ats"></div>
+                </div>
+                <div class="indicator-group flex-col items-center">
+                    <div class="text-[10px] text-gray-400 mb-1">引擎</div>
+                    <div class="indicator on-green" id="ind-eng"></div>
+                </div>
+            </div>
+            
+            <div class="w-full mb-3">
+                <div class="text-gray-400 text-xs mb-1">目前時速 (km/h)</div>
+                <div class="digital-display text-3xl" id="dig-speed">000.0</div>
+            </div>
+            <div class="w-full">
+                <div class="text-gray-400 text-xs mb-1">剩餘距離 (m)</div>
+                <div class="digital-display text-xl text-yellow-400" id="dig-dist">----</div>
+            </div>
+            
+            <!-- 進度條 -->
+            <div class="w-full mt-4">
+                <div class="flex justify-between text-[10px] text-gray-400 mb-1">
+                    <span>富山</span><span>高山</span>
+                </div>
+                <div class="w-full bg-gray-800 h-2 rounded-full overflow-hidden border border-gray-600">
+                    <div id="route-progress" class="bg-blue-500 h-full w-0 shadow-[0_0_5px_#3b82f6]"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 中間右：類比儀表 -->
+        <div class="panel-section w-2/5 flex-row justify-center gap-6">
+            <!-- 速度計 -->
+            <div class="flex flex-col items-center">
+                <div class="gauge-container">
+                    <div class="gauge-glass"></div>
+                    <!-- 刻度底圖 (簡化以CSS實現) -->
+                    <svg class="absolute w-full h-full" viewBox="0 0 100 100">
+                        <circle cx="50" cy="50" r="42" fill="none" stroke="#666" stroke-width="2" stroke-dasharray="2 6"/>
+                    </svg>
+                    <div class="gauge-label text-xl">km/h</div>
+                    <div class="needle needle-speed" id="needle-speed" style="transform: rotate(-130deg);"></div>
+                    <div class="gauge-center"></div>
+                </div>
+                <div class="text-gray-400 text-xs font-bold mt-3">速度計 SPEED</div>
+            </div>
+            
+            <!-- 壓力錶 (BC/MR) -->
+            <div class="flex flex-col items-center">
+                <div class="gauge-container bg-gray-200">
+                    <div class="gauge-glass"></div>
+                    <svg class="absolute w-full h-full" viewBox="0 0 100 100">
+                        <circle cx="50" cy="50" r="42" fill="none" stroke="#666" stroke-width="1" stroke-dasharray="4 4"/>
+                    </svg>
+                    <div class="gauge-label text-xs flex flex-col items-center">
+                        <span class="text-red-600">BC</span>
+                        <span class="text-black">MR</span>
+                        <span class="text-[9px] mt-1">kPa</span>
+                    </div>
+                    <!-- MR 總風缸 (黑) 恆定高壓 -->
+                    <div class="needle needle-mr" style="transform: rotate(80deg);"></div> 
+                    <!-- BC 軔缸 (紅) 隨煞車變動 -->
+                    <div class="needle needle-bc" id="needle-bc" style="transform: rotate(-130deg);"></div>
+                    <div class="gauge-center"></div>
+                </div>
+                <div class="text-gray-400 text-xs font-bold mt-3">壓力錶 PRESSURE</div>
+            </div>
+        </div>
+
+        <!-- 右側：煞車閥 (Brake) -->
+        <div class="panel-section w-1/5">
+            <div class="text-gray-400 text-xs font-bold mb-2 tracking-widest">煞車閥 BRAKE</div>
+            <div class="lever-track" id="track-brake" onclick="handleTrackClick(event, 'brake')">
+                <div class="lever-handle" id="lever-brake">EB</div>
+                <div class="notch-markers">
+                    <span>EB</span><span>B8</span><span>B7</span><span>B6</span><span>B5</span><span>B4</span><span>B3</span><span>B2</span><span>B1</span><span>N</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- 遊戲狀態與常數 ---
+    const STATIONS = [
+        { name: "富山 (Toyama)", dist: 0 },
+        { name: "越中八尾 (Etchu-Yatsuo)", dist: 4000 },
+        { name: "豬谷 (Inotani)", dist: 9000 },
+        { name: "飛驒古川 (Hida-Furukawa)", dist: 14000 },
+        { name: "高山 (Takayama)", dist: 18000 }
+    ];
+    const TOTAL_DISTANCE = 18000;
+    
+    let isGameRunning = false;
+    let currentSpeed = 0; // km/h
+    let currentPosition = 0; // meters
+    let powerNotch = 0; // 0-5
+    let brakeNotch = 10; // 0-9 (1-8=B1-B8, 9=EB)
+    let currentTargetStationIndex = 1;
+    
+    let gameTime = new Date();
+    gameTime.setHours(10, 5, 0);
+
+    // --- UI 元素綁定 ---
+    const ui = {
+        speedNeedle: document.getElementById('needle-speed'),
+        bcNeedle: document.getElementById('needle-bc'),
+        digSpeed: document.getElementById('dig-speed'),
+        digDist: document.getElementById('dig-dist'),
+        hudDist: document.getElementById('hud-distance'),
+        hudNext: document.getElementById('hud-next-station'),
+        hudMsg: document.getElementById('hud-message'),
+        hudTime: document.getElementById('hud-time'),
+        progressBar: document.getElementById('route-progress'),
+        leverPower: document.getElementById('lever-power'),
+        leverBrake: document.getElementById('lever-brake'),
+        indDoor: document.getElementById('ind-door')
+    };
+
+    // --- 操控邏輯與視覺 ---
+    function updateLeversUI() {
+        // Power 桿: 0(N) 在最下面(0%), 5(P5) 在最上面(100%)
+        const powerPercent = (powerNotch / 5) * (180 - 60); // track height - handle height
+        ui.leverPower.style.bottom = `${powerPercent}px`;
+        ui.leverPower.innerText = powerNotch === 0 ? 'N' : `P${powerNotch}`;
+        if(powerNotch > 0) ui.leverPower.style.color = '#15803d';
+        else ui.leverPower.style.color = '#000';
+
+        // Brake 桿: 0(N) 在最下面, 9(EB) 在最上面
+        const maxBrakeSteps = 9;
+        const brakePercent = (brakeNotch / maxBrakeSteps) * (180 - 60);
+        ui.leverBrake.style.bottom = `${brakePercent}px`;
+        ui.leverBrake.innerText = brakeNotch === 0 ? 'N' : (brakeNotch === 9 ? 'EB' : `B${brakeNotch}`);
+        if(brakeNotch === 9) ui.leverBrake.style.color = '#b91c1c';
+        else if (brakeNotch > 0) ui.leverBrake.style.color = '#c2410c';
+        else ui.leverBrake.style.color = '#000';
+    }
+
+    function setNotch(type, value) {
+        if (!isGameRunning && type !== 'brake') return; // 發車前只能解除煞車
+
+        if (type === 'power') {
+            powerNotch = Math.max(0, Math.min(5, value));
+            if (powerNotch > 0 && brakeNotch > 0) brakeNotch = 0; // 踩油門自動放煞車 (簡化操作)
+        } else if (type === 'brake') {
+            brakeNotch = Math.max(0, Math.min(9, value));
+            if (brakeNotch > 0 && powerNotch > 0) powerNotch = 0; // 踩煞車自動收油門
+        }
+        updateLeversUI();
+        
+        // 模擬氣軔音效 (釋放與充氣)
+        if(type === 'brake' && audioCtx) {
+            playAirSound(brakeNotch);
+        }
+    }
+
+    // 支援點擊軌道直接切換檔位
+    function handleTrackClick(e, type) {
+        const track = e.currentTarget;
+        const rect = track.getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        const percent = 1 - (y / rect.height); // 0 at bottom, 1 at top
+        
+        if (type === 'power') {
+            setNotch('power', Math.round(percent * 5));
+        } else {
+            setNotch('brake', Math.round(percent * 9));
+        }
+    }
+
+    window.addEventListener('keydown', (e) => {
+        if (!isGameRunning) return;
+        if (e.key === 'ArrowUp' || e.key.toLowerCase() === 'w') {
+            if (brakeNotch > 0) setNotch('brake', brakeNotch - 1);
+            else setNotch('power', powerNotch + 1);
+        } else if (e.key === 'ArrowDown' || e.key.toLowerCase() === 's') {
+            if (powerNotch > 0) setNotch('power', powerNotch - 1);
+            else setNotch('brake', brakeNotch + 1);
+        } else if (e.key === ' ') {
+            setNotch('brake', 9); // EB
+        }
+    });
+
+    function showMessage(msg, type="info") {
+        ui.hudMsg.innerText = msg;
+        if(type === "error") ui.hudMsg.className = "mt-4 text-xl font-bold text-white bg-red-600/80 px-4 py-2 rounded-lg border border-red-400 inline-block shadow-[0_0_15px_rgba(220,38,38,0.8)]";
+        else if (type === "success") ui.hudMsg.className = "mt-4 text-xl font-bold text-white bg-green-600/80 px-4 py-2 rounded-lg border border-green-400 inline-block shadow-[0_0_15px_rgba(34,197,94,0.8)]";
+        else ui.hudMsg.className = "mt-4 text-xl font-bold text-white bg-black/60 px-4 py-2 rounded-lg border border-gray-500 inline-block";
+    }
+
+    // --- 音效系統 (Web Audio API) ---
+    let audioCtx, engineOsc, noiseNode, engineGain, noiseGain;
+
+    function initAudio() {
+        if (audioCtx) return;
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // 柴油引擎基礎音 (鋸齒波+方波混合低頻)
+        engineOsc = audioCtx.createOscillator();
+        engineOsc.type = 'sawtooth';
+        engineOsc.frequency.value = 45; 
+        
+        const engineOsc2 = audioCtx.createOscillator();
+        engineOsc2.type = 'square';
+        engineOsc2.frequency.value = 44; 
+
+        engineGain = audioCtx.createGain();
+        engineGain.gain.value = 0.2;
+        
+        engineOsc.connect(engineGain);
+        engineOsc2.connect(engineGain);
+        engineGain.connect(audioCtx.destination);
+        engineOsc.start();
+        engineOsc2.start();
+
+        // 軌道滾動噪音
+        const bufferSize = audioCtx.sampleRate * 2; 
+        const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const output = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
+        
+        noiseNode = audioCtx.createBufferSource();
+        noiseNode.buffer = noiseBuffer;
+        noiseNode.loop = true;
+        
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 300;
+
+        noiseGain = audioCtx.createGain();
+        noiseGain.gain.value = 0;
+
+        noiseNode.connect(filter);
+        filter.connect(noiseGain);
+        noiseGain.connect(audioCtx.destination);
+        noiseNode.start();
+    }
+
+    function updateAudio() {
+        if (!audioCtx) return;
+        // 柴油引擎聲隨 Power 和 速度變化
+        const targetFreq = 45 + (powerNotch * 12) + (currentSpeed * 0.15);
+        engineOsc.frequency.setTargetAtTime(targetFreq, audioCtx.currentTime, 0.5);
+        
+        const targetVol = 0.2 + (powerNotch * 0.08) + (currentSpeed > 0 ? 0.1 : 0);
+        engineGain.gain.setTargetAtTime(targetVol, audioCtx.currentTime, 0.2);
+
+        // 軌道聲
+        const noiseVol = Math.min(0.6, (currentSpeed / 120) * 0.6);
+        noiseGain.gain.setTargetAtTime(noiseVol, audioCtx.currentTime, 0.2);
+    }
+
+    function playAirSound(notch) {
+        // 簡單生成氣音
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(800 + Math.random()*200, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.3);
+        
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + (notch===0?0.5:0.2));
+        
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.5);
+    }
+
+    // --- Three.js 3D 渲染與場景生成 ---
+    const container = document.getElementById('view-container');
+    const scene = new THREE.Scene();
+    
+    // 秋季晴空
+    scene.background = new THREE.Color(0x5ca2d4); 
+    scene.fog = new THREE.FogExp2(0x7dafd4, 0.002);
+
+    const camera = new THREE.PerspectiveCamera(65, container.clientWidth / container.clientHeight, 0.5, 1500);
+    camera.position.set(0, 3.5, 0); // 模擬較高的駕駛室視角
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    container.appendChild(renderer.domElement);
+
+    window.addEventListener('resize', () => {
+        camera.aspect = container.clientWidth / container.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(container.clientWidth, container.clientHeight);
+    });
+
+    // 光源設定
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+    
+    const sunLight = new THREE.DirectionalLight(0xfff3e0, 1.2); // 秋季偏暖陽光
+    sunLight.position.set(200, 300, 100);
+    sunLight.castShadow = true;
+    sunLight.shadow.camera.near = 10;
+    sunLight.shadow.camera.far = 1000;
+    sunLight.shadow.camera.left = -200;
+    sunLight.shadow.camera.right = 200;
+    sunLight.shadow.camera.top = 200;
+    sunLight.shadow.camera.bottom = -200;
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
+    scene.add(sunLight);
+
+    // 材質與幾何體共用區
+    // 1. 軌道材質 (精細版)
+    function createTrackTex() {
+        const cvs = document.createElement('canvas');
+        cvs.width = 512; cvs.height = 512;
+        const ctx = cvs.getContext('2d');
+        
+        // 碎石 (深灰帶點棕色)
+        ctx.fillStyle = '#4a4a4a'; ctx.fillRect(0,0,512,512);
+        for(let i=0; i<6000; i++) {
+            ctx.fillStyle = Math.random()>0.5 ? '#333' : '#615549';
+            ctx.fillRect(Math.random()*512, Math.random()*512, 3, 3);
+        }
+        
+        // 混凝土枕木
+        ctx.fillStyle = '#8a8a8a';
+        ctx.fillRect(30, 150, 452, 45);
+        ctx.fillRect(30, 406, 452, 45);
+
+        // 扣件與鋼軌墊片 (扣住鐵軌的黑色金屬座)
+        ctx.fillStyle = '#222';
+        ctx.fillRect(110, 140, 40, 65);
+        ctx.fillRect(360, 140, 40, 65);
+        ctx.fillRect(110, 396, 40, 65);
+        ctx.fillRect(360, 396, 40, 65);
+
+        // 雙軌繪製 (為左右軌分別計算對應座標的金屬反光)
+        function drawRail(x) {
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(x - 2, 0, 24, 512); // 底座陰影
+            const railGrd = ctx.createLinearGradient(x, 0, x + 20, 0);
+            railGrd.addColorStop(0, "#444"); 
+            railGrd.addColorStop(0.3, "#ffffff"); 
+            railGrd.addColorStop(0.7, "#dddddd"); 
+            railGrd.addColorStop(1, "#444");
+            ctx.fillStyle = railGrd;
+            ctx.fillRect(x, 0, 20, 512);
+        }
+
+        drawRail(120); // 左軌
+        drawRail(372); // 右軌 (已修復右軌反光座標)
+
+        const tex = new THREE.CanvasTexture(cvs);
+        tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(1, 400); 
+        tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        return tex;
+    }
+    const trackMat = new THREE.MeshStandardMaterial({ map: createTrackTex(), roughness: 0.8 });
+    const trackGeo = new THREE.PlaneGeometry(5, 1000);
+
+    // 2. 樹木 (InstancedMesh 用於大量渲染秋葉)
+    const treeGeo = new THREE.ConeGeometry(3, 8, 5);
+    const trunkGeo = new THREE.CylinderGeometry(0.3, 0.5, 3);
+    const autumnColors = [0xcc3300, 0xdd7700, 0xeecc00, 0x2d5a27, 0x8b3a3a]; // 紅, 橘, 黃, 綠, 暗紅
+
+    // 3. 隧道幾何體
+    const tunnelShape = new THREE.Shape();
+    tunnelShape.moveTo(-4, 0);
+    tunnelShape.lineTo(-4, 4);
+    tunnelShape.quadraticCurveTo(0, 8, 4, 4);
+    tunnelShape.lineTo(4, 0);
+    tunnelShape.lineTo(-4, 0);
+    const tunnelExtrude = { depth: 400, bevelEnabled: false };
+    const tunnelGeo = new THREE.ExtrudeGeometry(tunnelShape, tunnelExtrude);
+    const tunnelMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9, side: THREE.BackSide });
+    const tunnelWallMat = new THREE.MeshStandardMaterial({ color: 0x444444 });
+
+    const sceneryGroup = new THREE.Group();
+    scene.add(sceneryGroup);
+
+    // 動態生成帶有河谷的高山本線地形
+    const chunkLength = 1000;
+    const activeChunks = new Map();
+
+    function createChunk(chunkZ) {
+        const chunk = new THREE.Group();
+        chunk.position.z = -chunkZ;
+
+        // --- 複雜地形 (V型谷 - 加寬地形範圍並修復高度設定) ---
+        const groundGeo = new THREE.PlaneGeometry(500, chunkLength, 64, 32);
+        const posAttr = groundGeo.attributes.position;
+        // 左側高山，右側深谷與河
+        for(let i=0; i<posAttr.count; i++) {
+            const x = posAttr.getX(i);
+            let height = 0;
+            if (x < -8) {
+                height = Math.pow(Math.abs(x + 8) / 12, 1.4); // 左側高山
+            } else if (x > 8 && x < 70) {
+                height = -((x - 8) / 2.8); // 向右斜下河谷
+            } else if (x >= 70) {
+                height = -22 + Math.pow((x - 70) / 10, 1.3); // 對岸山壁
+            }
+            
+            // 雜訊崎嶇感 (鐵軌底下維持平坦)
+            if (Math.abs(x) > 6) {
+                height += (Math.random() - 0.5) * 1.5;
+            } else {
+                height = -0.05; // 軌道區路基
+            }
+            
+            // 正確設定 3D 地形高度 (Local Z)
+            posAttr.setZ(i, height);
+        }
+        groundGeo.computeVertexNormals();
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x3d4f30, roughness: 1 });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.z = chunkLength/2;
+        ground.receiveShadow = true;
+        chunk.add(ground);
+
+        // --- 軌道 ---
+        const track = new THREE.Mesh(trackGeo, trackMat);
+        track.rotation.x = -Math.PI / 2;
+        track.position.set(0, 0.05, chunkLength/2);
+        track.receiveShadow = true;
+        chunk.add(track);
+
+        // --- 河流 (飛驒川) ---
+        const riverGeo = new THREE.PlaneGeometry(80, chunkLength);
+        const riverMat = new THREE.MeshStandardMaterial({ 
+            color: 0x2b638f, roughness: 0.1, metalness: 0.8, transparent: true, opacity: 0.9 
+        });
+        const river = new THREE.Mesh(riverGeo, riverMat);
+        river.rotation.x = -Math.PI / 2;
+        river.position.set(45, -21.5, chunkLength/2); // 位於谷底
+        chunk.add(river);
+
+        // --- 大量秋季樹木 (InstancedMesh) ---
+        const treeCount = 800;
+        const instancedLeaves = new THREE.InstancedMesh(treeGeo, new THREE.MeshStandardMaterial(), treeCount);
+        const instancedTrunks = new THREE.InstancedMesh(trunkGeo, new THREE.MeshStandardMaterial({color: 0x3d2817}), treeCount);
+        instancedLeaves.castShadow = true; instancedTrunks.castShadow = true;
+        
+        const dummy = new THREE.Object3D();
+        const colorObj = new THREE.Color();
+        
+        let treeIdx = 0;
+        for(let i=0; i<treeCount; i++) {
+            const side = Math.random() > 0.5 ? 1 : -1;
+            const x = side * (Math.random() * 200 + 10);
+            const z = Math.random() * chunkLength;
+            
+            // 避開鐵軌與河流中央
+            if (x > -8 && x < 8) continue; 
+            if (x > 35 && x < 65) continue; 
+            
+            // 精確依照地形計算樹木植載高度，防止樹木懸空
+            let y = 0;
+            if (x < -8) y = Math.pow(Math.abs(x + 8) / 12, 1.4);
+            else if (x >= 70) y = -22 + Math.pow((x - 70) / 10, 1.3);
+            else if (x > 8 && x < 70) y = -((x - 8) / 2.8);
+            
+            dummy.position.set(x, y + 1.5, z);
+            
+            const scale = 0.8 + Math.random() * 0.7;
+            dummy.scale.set(scale, scale, scale);
+            dummy.updateMatrix();
+            instancedTrunks.setMatrixAt(treeIdx, dummy.matrix);
+            
+            dummy.position.y += 4 * scale;
+            dummy.updateMatrix();
+            instancedLeaves.setMatrixAt(treeIdx, dummy.matrix);
+            
+            colorObj.setHex(autumnColors[Math.floor(Math.random() * autumnColors.length)]);
+            instancedLeaves.setColorAt(treeIdx, colorObj);
+            
+            treeIdx++;
+        }
+        instancedLeaves.count = treeIdx; instancedTrunks.count = treeIdx;
+        chunk.add(instancedLeaves); chunk.add(instancedTrunks);
+
+        // --- 隧道 (特定路段) ---
+        if (chunkZ === 5000 || chunkZ === 12000) {
+            const tunnel = new THREE.Mesh(tunnelGeo, tunnelMat);
+            tunnel.position.set(0, 0, 700); // 放在 chunk 中段
+            chunk.add(tunnel);
+            // 隧道外牆遮擋地形
+            const wallGeo = new THREE.PlaneGeometry(60, 40);
+            const wall = new THREE.Mesh(wallGeo, tunnelWallMat);
+            wall.position.set(0, 10, 700);
+            chunk.add(wall);
+            const wall2 = wall.clone();
+            wall2.position.set(0, 10, 300);
+            wall2.rotation.y = Math.PI;
+            chunk.add(wall2);
+        }
+
+        // --- 車站月台 ---
+        STATIONS.forEach(st => {
+            if (st.dist >= chunkZ && st.dist < chunkZ + chunkLength) {
+                // 月台本體
+                const platGeo = new THREE.BoxGeometry(6, 1.2, 150);
+                const platMat = new THREE.MeshStandardMaterial({ color: 0x999999 });
+                const platform = new THREE.Mesh(platGeo, platMat);
+                platform.position.set(-5.5, 0.6, st.dist - chunkZ - 70); 
+                platform.receiveShadow = true; platform.castShadow = true;
+                chunk.add(platform);
+                
+                // 站牌/屋頂
+                const roofGeo = new THREE.BoxGeometry(5, 0.2, 80);
+                const roofMat = new THREE.MeshStandardMaterial({ color: 0x3a5a40 }); // 綠色屋頂
+                const roof = new THREE.Mesh(roofGeo, roofMat);
+                roof.position.set(-5.5, 4, st.dist - chunkZ - 40);
+                roof.castShadow = true;
+                chunk.add(roof);
+
+                // 柱子
+                for(let p=0; p<5; p++){
+                    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.1,3), new THREE.MeshStandardMaterial({color:0x333}));
+                    pillar.position.set(-5.5, 2.5, st.dist - chunkZ - 40 - 30 + p*15);
+                    chunk.add(pillar);
+                }
+            }
+        });
+
+        return chunk;
+    }
+
+    // --- 物理與運算 ---
+    let lastTime = performance.now();
+    const MAX_SPEED = 120; 
+    // 柴聯車起步特性：低速扭力大，高速加速慢
+    const ACCEL_RATE = [0, 0.2, 0.5, 0.9, 1.3, 1.8]; 
+    const DECEL_RATE = [0, 0.4, 0.8, 1.2, 1.6, 2.0, 2.5, 3.0, 3.5, 5.0]; // 0-9(EB)
+    const FRICTION = 0.06; 
+
+    function checkStationStop() {
+        if (currentTargetStationIndex >= STATIONS.length) return;
+        const target = STATIONS[currentTargetStationIndex];
+        const distToStation = target.dist - currentPosition;
+
+        // 更新 HUD 距離 (綠色正常，低於50m變紅)
+        ui.hudDist.innerText = Math.abs(Math.floor(distToStation)) + "m";
+        if (distToStation >= 0 && distToStation < 100) ui.hudDist.className = "text-6xl font-black font-mono tracking-tighter text-red-400";
+        else ui.hudDist.className = "text-6xl font-black font-mono tracking-tighter text-yellow-400";
+
+        // 停車判定
+        if (currentSpeed === 0 && Math.abs(distToStation) < 150) {
+            ui.indDoor.className = "indicator on-green"; // 車門開啟指示燈
+            
+            if (Math.abs(distToStation) <= 10) {
+                showMessage(`停靠 ${target.name}。停車位置：優良！`, "success");
+                if (powerNotch === 0 && brakeNotch >= 6) {
+                    setTimeout(() => {
+                        if(currentSpeed === 0 && currentTargetStationIndex < STATIONS.length - 1) {
+                            currentTargetStationIndex++;
+                            ui.hudNext.innerText = `下一站: ${STATIONS[currentTargetStationIndex].name}`;
+                            ui.indDoor.className = "indicator on-red"; // 關門
+                            showMessage("車門關閉，確認號誌，出發。", "info");
+                        } else if (currentTargetStationIndex === STATIONS.length - 1) {
+                            showMessage("終點站 高山 抵達！感謝搭乘 Wide View 飛驒號。", "success");
+                            isGameRunning = false;
+                        }
+                    }, 4000);
+                }
+            } else if (distToStation > 10) {
+                showMessage(`停車位置不足。距離標誌 ${Math.floor(distToStation)}m`, "error");
+            } else {
+                showMessage(`停車過頭！超越標誌 ${Math.abs(Math.floor(distToStation))}m`, "error");
+            }
+        } else {
+            ui.indDoor.className = "indicator on-red";
+        }
+    }
+
+    function updatePhysics(dt) {
+        let accel = 0;
+        
+        if (powerNotch > 0 && brakeNotch === 0) {
+            accel = ACCEL_RATE[powerNotch];
+            accel *= (1 - (currentSpeed / (MAX_SPEED * 1.1))); // 高速衰減
+        } else if (brakeNotch > 0) {
+            accel = -DECEL_RATE[brakeNotch];
+        }
+
+        if (currentSpeed > 0) accel -= FRICTION * (1 + (currentSpeed / 60)); 
+
+        currentSpeed += accel * dt;
+        if (currentSpeed < 0) currentSpeed = 0;
+        if (currentSpeed > MAX_SPEED) {
+            currentSpeed = MAX_SPEED;
+            showMessage("ATS 作動：超速！", "error");
+        }
+
+        const speedMS = currentSpeed * (1000 / 3600);
+        currentPosition += speedMS * dt;
+        gameTime.setSeconds(gameTime.getSeconds() + dt * 1.5); // 遊戲時間流逝
+    }
+
+    function updateUI() {
+        // 速度計 (0-160km/h 對應 -130 到 130 度)
+        const speedAngle = -130 + (currentSpeed / 160) * 260;
+        ui.speedNeedle.style.transform = `rotate(${speedAngle}deg)`;
+        
+        // BC 壓力錶 (隨煞車段數上升, 0-500kPa 對應 -130 到 0 度)
+        // 延遲動畫模擬氣壓建立
+        const targetBCAngle = -130 + (brakeNotch / 9) * 130;
+        const currentBCAngle = parseFloat(ui.bcNeedle.style.transform.replace(/[^-\d.]/g, '')) || -130;
+        const nextBCAngle = currentBCAngle + (targetBCAngle - currentBCAngle) * 0.1;
+        ui.bcNeedle.style.transform = `rotate(${nextBCAngle}deg)`;
+
+        // 數位顯示
+        ui.digSpeed.innerText = currentSpeed.toFixed(1).padStart(5, '0');
+        const nextDist = STATIONS[currentTargetStationIndex] ? STATIONS[currentTargetStationIndex].dist - currentPosition : 0;
+        ui.digDist.innerText = Math.max(0, Math.floor(nextDist)).toString().padStart(4, '0');
+        
+        ui.progressBar.style.width = `${Math.min(100, (currentPosition / TOTAL_DISTANCE) * 100)}%`;
+        ui.hudTime.innerText = gameTime.toLocaleTimeString('zh-TW', { hour12: false });
+    }
+
+    // --- 攝影機晃動 (模擬柴油車震動與軌道起伏) ---
+    let shakePhase = 0;
+    function applyCameraShake(dt) {
+        if (currentSpeed > 0) {
+            shakePhase += currentSpeed * dt * 0.2;
+            const shakeY = Math.sin(shakePhase) * (currentSpeed / 100) * 0.02;
+            const shakeX = Math.cos(shakePhase * 0.8) * (currentSpeed / 100) * 0.01;
+            camera.position.y = 3.5 + shakeY;
+            camera.position.x = shakeX;
+        } else {
+            camera.position.y = 3.5;
+            camera.position.x = 0;
+        }
+    }
+
+    function updateScenery() {
+        camera.position.z = -currentPosition;
+        
+        // 修正：移除 trackMat.map.offset.y 的更新。
+        // 因為實體 (Chunk) 已經不動，而攝影機正在往前移動，軌道紋理不需要再做假平移，就會自然往畫面下方（您的方向）移動。
+
+        const currentChunk = Math.floor(currentPosition / chunkLength) * chunkLength;
+        const neededChunks = [currentChunk - chunkLength, currentChunk, currentChunk + chunkLength, currentChunk + chunkLength * 2];
+
+        activeChunks.forEach((chunk, z) => {
+            if (!neededChunks.includes(z)) {
+                sceneryGroup.remove(chunk);
+                activeChunks.delete(z);
+            }
+        });
+
+        neededChunks.forEach(z => {
+            if (z >= -chunkLength && z <= TOTAL_DISTANCE + chunkLength && !activeChunks.has(z)) {
+                const chunk = createChunk(z);
+                sceneryGroup.add(chunk);
+                activeChunks.set(z, chunk);
+            }
+        });
+
+        // 檢查是否在隧道內以調整光線
+        let inTunnel = false;
+        if ((currentPosition > 4700 && currentPosition < 5300) || 
+            (currentPosition > 11700 && currentPosition < 12300)) {
+            inTunnel = true;
+        }
+        ambientLight.intensity = inTunnel ? 0.1 : 0.6;
+        sunLight.intensity = inTunnel ? 0 : 1.2;
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        const now = performance.now();
+        const dt = Math.min((now - lastTime) / 1000, 0.1); // 限制最大 dt 防跳幀
+        lastTime = now;
+
+        if (isGameRunning) {
+            updatePhysics(dt);
+            checkStationStop();
+            updateAudio();
+            applyCameraShake(dt);
+        }
+
+        updateUI();
+        updateScenery();
+        renderer.render(scene, camera);
+    }
+
+    // --- 初始化與啟動 ---
+    document.getElementById('start-btn').addEventListener('click', () => {
+        initAudio();
+        setNotch('brake', 8); // 初始狀態切至常用最大軔機
+        updateLeversUI();
+        document.getElementById('overlay-screen').style.display = 'none';
+        isGameRunning = true;
+        lastTime = performance.now();
+        showMessage("ATS 正常。請解除煞車，推進主控手柄發車。", "success");
+    });
+
+    updateLeversUI();
+    updateScenery();
+    renderer.render(scene, camera);
+    animate();
+
+</script>
+</body>
+</html>
